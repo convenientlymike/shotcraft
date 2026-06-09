@@ -3,11 +3,18 @@ name: CI
 # Cross-OS by default: shotcraft must run on macOS, Linux, and Windows, so the full
 # matrix is the gate. The render path drives an installed Chrome (provided here by
 # setup-chrome STABLE on every OS — never downloaded by shotcraft itself).
+#
+# Cost guardrails (macOS bills 10×, Windows 2× — free on this public repo, but the habit
+# is the point): docs-only changes skip CI, and a new push cancels the superseded run.
 on:
   push:
     branches: [main]
+    paths-ignore: ["**.md", "docs/**", "LICENSE", ".gitignore"]
   pull_request:
     branches: [main]
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
