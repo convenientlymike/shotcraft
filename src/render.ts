@@ -10,17 +10,21 @@
  * lifecycle. Still no browser download (drives an installed Chrome); zero runtime deps
  * (Node ≥22's built-in WebSocket + fetch).
  *
- * Every hardening flag/guard below fixes a real cross-OS hang paid for in June 2026:
- *   --use-mock-keychain + --password-store=basic : skip the macOS keychain prompt.
- *   --disable-background-networking + --disable-sync + --disable-component-update :
- *     stop the GCM/push noise that kept headless alive.
- *   --disable-dev-shm-usage : tiny /dev/shm in CI/containers hangs Chrome.
- *   fresh --user-data-dir in $TMPDIR : no profile lock, no protected-folder TCC prompt.
- *   data: URL (not file://) : self-contained; Chrome never touches the filesystem.
- *   hard timeout that kills the process : nothing can hang forever.
+ * Robustness (every line paid for in June 2026): hardened launch flags (mock keychain,
+ * no background networking, no /dev/shm), a fresh $TMPDIR profile, file:// navigation,
+ * Chrome stderr captured to a log and surfaced on failure, and — critically — the whole
+ * flow races a hard timeout and rejects (never hangs) if Chrome/CDP goes unresponsive.
  */
 import { spawn } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync, existsSync, rmSync } from "node:fs";
+import {
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+  existsSync,
+  rmSync,
+  openSync,
+  closeSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -61,34 +65,72 @@ const LAUNCH_FLAGS = [
   "--mute-audio",
 ];
 
-/** Minimal CDP client over the browser-level WebSocket. */
+const CALL_TIMEOUT = 15_000;
+const TOTAL_TIMEOUT = 35_000;
+
+/** Minimal CDP client over the browser-level WebSocket — every call settles. */
 class Cdp {
   private ws: WebSocket;
   private id = 0;
-  private pending = new Map<number, (r: any) => void>();
+  private pending = new Map<number, { resolve: (r: any) => void; reject: (e: Error) => void }>();
+  private closedErr: Error | null = null;
+
   constructor(url: string) {
     this.ws = new WebSocket(url);
     this.ws.onmessage = (ev: MessageEvent) => {
       const m = JSON.parse(ev.data as string);
       if (m.id && this.pending.has(m.id)) {
-        this.pending.get(m.id)!(m);
+        this.pending.get(m.id)!.resolve(m);
         this.pending.delete(m.id);
       }
     };
+    const fail = (e: Error) => {
+      this.closedErr = e;
+      for (const { reject } of this.pending.values()) reject(e);
+      this.pending.clear();
+    };
+    this.ws.onclose = () => fail(new Error("CDP connection closed"));
+    this.ws.onerror = () => fail(new Error("CDP connection error"));
   }
   open(): Promise<void> {
     return new Promise((res, rej) => {
-      this.ws.onopen = () => res();
-      this.ws.onerror = () => rej(new Error("CDP websocket failed to open"));
+      const t = setTimeout(() => rej(new Error("CDP websocket open timed out")), CALL_TIMEOUT);
+      this.ws.onopen = () => {
+        clearTimeout(t);
+        res();
+      };
+      this.ws.onerror = () => {
+        clearTimeout(t);
+        rej(new Error("CDP websocket failed to open"));
+      };
     });
   }
   send(method: string, params?: object, sessionId?: string): Promise<any> {
+    if (this.closedErr) return Promise.reject(this.closedErr);
     const id = ++this.id;
     const msg: Record<string, unknown> = { id, method, params: params ?? {} };
     if (sessionId) msg.sessionId = sessionId;
-    return new Promise((res) => {
-      this.pending.set(id, (m) => res(m.result));
-      this.ws.send(JSON.stringify(msg));
+    return new Promise((resolve, reject) => {
+      const t = setTimeout(() => {
+        this.pending.delete(id);
+        reject(new Error(`CDP call timed out: ${method}`));
+      }, CALL_TIMEOUT);
+      this.pending.set(id, {
+        resolve: (m) => {
+          clearTimeout(t);
+          resolve(m.result);
+        },
+        reject: (e) => {
+          clearTimeout(t);
+          reject(e);
+        },
+      });
+      try {
+        this.ws.send(JSON.stringify(msg));
+      } catch (e) {
+        clearTimeout(t);
+        reject(e as Error);
+      }
     });
   }
   close(): void {
@@ -126,8 +168,9 @@ export async function renderHtml(html: string, opts: RenderOptions): Promise<Ren
 
   const profile = mkdtempSync(join(tmpdir(), "shotcraft-"));
   const logPath = join(profile, "chrome.log");
+  const logFd = openSync(logPath, "w");
   const proc = spawn(chrome, [...LAUNCH_FLAGS, `--user-data-dir=${profile}`, "about:blank"], {
-    stdio: ["ignore", "ignore", "ignore"],
+    stdio: ["ignore", "ignore", logFd],
   });
   let cdp: Cdp | undefined;
   const killProc = () => {
@@ -137,20 +180,16 @@ export async function renderHtml(html: string, opts: RenderOptions): Promise<Ren
       /* ignore */
     }
   };
-  // hard ceiling: nothing hangs forever
-  const guard = setTimeout(killProc, 40_000);
 
-  try {
+  const work = (async (): Promise<RenderResult> => {
     const port = await readPort(profile, Date.now() + 20_000);
     const ver = (await (await fetch(`http://127.0.0.1:${port}/json/version`)).json()) as {
       webSocketDebuggerUrl: string;
     };
     cdp = new Cdp(ver.webSocketDebuggerUrl);
     await cdp.open();
-
     const { targetId } = await cdp.send("Target.createTarget", { url: "about:blank" });
     const { sessionId } = await cdp.send("Target.attachToTarget", { targetId, flatten: true });
-
     await cdp.send("Page.enable", {}, sessionId);
     await cdp.send(
       "Emulation.setDeviceMetricsOverride",
@@ -162,40 +201,47 @@ export async function renderHtml(html: string, opts: RenderOptions): Promise<Ren
       { color: { r: 0, g: 0, b: 0, a: 0 } },
       sessionId,
     );
-    // Navigate to a temp FILE (not a data: URL): diff embeds images as base64, which
-    // would blow past Chrome's data-URL navigation size limit. $TMPDIR isn't TCC-
-    // protected, so file:// there raises no macOS folder prompt.
+    // file:// (not data:) — diff embeds base64 images that overflow a data-URL; $TMPDIR
+    // isn't TCC-protected so file:// there raises no macOS folder prompt.
     const page = join(profile, "page.html");
     writeFileSync(page, html);
     await cdp.send("Page.navigate", { url: pathToFileURL(page).href }, sessionId);
-    // settle: give layout/paint (and any images) a moment to load
     await delay(350);
     const shot = await cdp.send(
       "Page.captureScreenshot",
-      {
-        format: "png",
-        clip: { x: 0, y: 0, width: w, height: h, scale: 1 },
-        captureBeyondViewport: true,
-      },
+      { format: "png", clip: { x: 0, y: 0, width: w, height: h, scale: 1 }, captureBeyondViewport: true },
       sessionId,
     );
     if (!shot?.data) throw new Error("Chrome returned no screenshot data");
     writeFileSync(out, Buffer.from(shot.data, "base64"));
-    await cdp.send("Browser.close");
+    await cdp.send("Browser.close").catch(() => {});
     return { out, width: w * scale, height: h * scale, chrome };
+  })();
+
+  const timeout = new Promise<never>((_, rej) =>
+    setTimeout(() => rej(new Error(`render timed out after ${TOTAL_TIMEOUT}ms`)), TOTAL_TIMEOUT),
+  );
+
+  try {
+    return await Promise.race([work, timeout]);
   } catch (err) {
+    work.catch(() => {}); // swallow the losing race branch
     let detail = (err as Error).message;
     try {
       const log = readFileSync(logPath, "utf8").trim();
-      if (log) detail += "\n  chrome: " + log.split("\n").slice(-3).join("\n  chrome: ");
+      if (log) detail += "\n  chrome: " + log.split("\n").slice(-4).join("\n  chrome: ");
     } catch {
       /* no log */
     }
     throw new Error(`render failed: ${detail}`);
   } finally {
-    clearTimeout(guard);
     cdp?.close();
     killProc();
+    try {
+      closeSync(logFd);
+    } catch {
+      /* already closed */
+    }
     try {
       rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     } catch {
