@@ -1,0 +1,17 @@
+dist/
+node_modules/
+.pnpm-store/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.log
+coverage/
+*.tmp
+tmp/
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp

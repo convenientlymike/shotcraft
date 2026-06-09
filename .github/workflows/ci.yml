@@ -1,0 +1,51 @@
+name: CI
+
+# Cross-OS by default: shotcraft must run on macOS, Linux, and Windows, so the full
+# matrix is the gate. The render path drives an installed Chrome (provided here by
+# setup-chrome STABLE on every OS — never downloaded by shotcraft itself).
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    name: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Build
+        run: pnpm build
+
+      # Google Chrome STABLE (what real users run); shotcraft drives it over CDP.
+      - name: Install Chrome stable
+        id: chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+
+      - name: Test
+        run: pnpm test
+        env:
+          SHOTCRAFT_CHROME: ${{ steps.chrome.outputs.chrome-path }}

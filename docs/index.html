@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>🖼 shotcraft — live terminal preview</title>
+<style>
+  :root{
+    --bg:#0b0e14; --card:#0d1117; --border:#21262d; --text:#e6edf3; --muted:#8b949e;
+    --violet:#a78bfa; --cyan:#22d3ee; --green:#34d399; --red:#f87171; --amber:#fbbf24;
+    --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    --sans:Inter,ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:
+    radial-gradient(120% 90% at 0% 0%,rgba(167,139,250,.10),transparent 55%),
+    radial-gradient(120% 90% at 100% 100%,rgba(34,211,238,.09),transparent 55%),var(--bg);
+    color:var(--text);font-family:var(--sans);min-height:100vh;padding:32px 18px;}
+  .wrap{max-width:980px;margin:0 auto;}
+  h1{font-size:26px;margin:0 0 4px;}
+  h1 .g{background:linear-gradient(90deg,var(--violet),var(--cyan));-webkit-background-clip:text;background-clip:text;color:transparent;}
+  .sub{color:var(--muted);margin:0 0 22px;font-size:15px;}
+  .sub code{color:var(--cyan);font-family:var(--mono);font-size:13px;}
+  .grid{display:grid;grid-template-columns:1fr;gap:18px;}
+  @media(min-width:820px){.grid{grid-template-columns:1fr 1fr;}}
+  label{display:block;color:var(--muted);font-size:13px;font-weight:600;margin:0 0 8px;}
+  textarea{width:100%;height:300px;resize:vertical;background:#11161f;color:var(--text);
+    border:1px solid var(--border);border-radius:10px;padding:14px;font-family:var(--mono);
+    font-size:13px;line-height:1.5;outline:none;}
+  textarea:focus{border-color:var(--violet);}
+  .row{display:flex;gap:14px;align-items:center;margin:12px 0 0;color:var(--muted);font-size:13px;flex-wrap:wrap;}
+  .row input{width:74px;background:#11161f;color:var(--text);border:1px solid var(--border);border-radius:7px;padding:5px 8px;font-family:var(--mono);}
+  .preview{align-self:start;}
+  .card{border:1px solid var(--border);border-radius:12px;overflow:hidden;
+    background:radial-gradient(120% 120% at 0% 0%,rgba(167,139,250,.14),transparent 55%),
+      radial-gradient(120% 120% at 100% 100%,rgba(34,211,238,.12),transparent 55%),var(--card);
+    box-shadow:0 24px 60px -20px rgba(0,0,0,.55);}
+  .bar{height:42px;display:flex;align-items:center;gap:8px;padding:0 16px;border-bottom:1px solid var(--border);}
+  .dot{width:12px;height:12px;border-radius:50%;}
+  .title{flex:1;text-align:center;color:var(--muted);font:600 13px/1 var(--sans);margin-right:46px;}
+  pre{margin:0;padding:20px;color:var(--text);white-space:pre-wrap;word-break:break-word;
+    font:14px/1.55 var(--mono);font-variant-ligatures:none;}
+  .foot{color:var(--muted);font-size:13px;margin-top:26px;text-align:center;line-height:1.7;}
+  .foot a{color:var(--cyan);text-decoration:none;} .foot a:hover{text-decoration:underline;}
+  .cli{display:inline-block;margin-top:10px;background:#11161f;border:1px solid var(--border);
+    border-radius:8px;padding:8px 12px;font-family:var(--mono);font-size:12.5px;color:var(--text);}
+  .cli .c{color:var(--green);}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🖼 <span class="g">shotcraft</span></h1>
+  <p class="sub">Live preview of the <code>term</code> card. Paste terminal output (ANSI colors
+  welcome) and watch it become a brand-matched terminal. The CLI exports this as a crisp,
+  transparent PNG — <code>npx github:convenientlymike/shotcraft term --run "…"</code>.</p>
+
+  <div class="grid">
+    <div>
+      <label for="in">your output (ANSI ok)</label>
+      <textarea id="in" spellcheck="false"></textarea>
+      <div class="row">
+        <span>title <input id="title" value="demo — output" /></span>
+        <span>wrap cols <input id="cols" type="number" value="0" min="0" /></span>
+      </div>
+    </div>
+    <div class="preview">
+      <label>preview</label>
+      <div class="card">
+        <div class="bar">
+          <span class="dot" style="background:#ff5f57"></span>
+          <span class="dot" style="background:#febc2e"></span>
+          <span class="dot" style="background:#28c840"></span>
+          <span class="title" id="ptitle">demo — output</span>
+        </div>
+        <pre id="out"></pre>
+      </div>
+    </div>
+  </div>
+
+  <p class="foot">
+    Runs 100% in your browser — nothing is uploaded.
+    <br><span class="cli"><span class="c">$</span> npx github:convenientlymike/shotcraft term --run "your-cli" -o shot.png</span>
+    <br><a href="https://github.com/convenientlymike/shotcraft">GitHub repo →</a>
+  </p>
+</div>
+
+<script>
+// Brand ANSI palette (matches src/theme.ts): [0..7] normal, [8..15] bright.
+const ANSI = ["#484f58","#f87171","#34d399","#fbbf24","#22d3ee","#a78bfa","#22d3ee","#c9d1d9",
+              "#6e7681","#fca5a5","#6ee7b7","#fcd34d","#67e8f9","#c4b5fd","#67e8f9","#f0f6fc"];
+const esc = s => s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+function ansiToHtml(input){
+  let color=null, bold=false, out="", last=0;
+  const re=/\x1b\[([0-9;]*)m/g; let m;
+  const span=t=>{ if(!t) return; const st=[]; if(color)st.push("color:"+color); if(bold)st.push("font-weight:700");
+    out += st.length ? `<span style="${st.join(";")}">${esc(t)}</span>` : esc(t); };
+  while((m=re.exec(input))){
+    span(input.slice(last,m.index)); last=re.lastIndex;
+    const codes = m[1]===""?[0]:m[1].split(";").map(n=>parseInt(n,10)||0);
+    for(const c of codes){
+      if(c===0){color=null;bold=false;} else if(c===1)bold=true; else if(c===22)bold=false;
+      else if(c===39)color=null; else if(c>=30&&c<=37)color=ANSI[c-30];
+      else if(c>=90&&c<=97)color=ANSI[c-90+8];
+    }
+  }
+  span(input.slice(last));
+  return out;
+}
+const SAMPLE = "\x1b[32m$\x1b[0m svgsafe doctor card.svg\n\n"+
+  "\x1b[31m✘ no-viewbox\x1b[0m  root <svg> has no viewBox — WebKit/iOS clips instead of scaling.\n"+
+  "  \x1b[2m→ add viewBox=\"0 0 420 180\"\x1b[0m\n\n"+
+  "\x1b[36mℹ prefer-raster-on-mobile\x1b[0m  a raster removes all engine risk.\n"+
+  "  \x1b[2m→ rasterize: svgsafe render <file> --scale 3\x1b[0m\n\n"+
+  "\x1b[31m✘ 2 errors\x1b[0m";
+const $=id=>document.getElementById(id);
+function render(){
+  let text=$("in").value.replace(/\t/g,"  ");
+  const cols=parseInt($("cols").value,10)||0;
+  $("out").style.whiteSpace = cols>0 ? "pre-wrap" : "pre";
+  $("out").style.wordBreak  = cols>0 ? "break-all" : "normal";
+  $("out").style.maxWidth   = cols>0 ? (cols*8.4)+"px" : "none";
+  $("out").innerHTML = ansiToHtml(text);
+  $("ptitle").textContent = $("title").value;
+}
+$("in").value = SAMPLE;
+["in","title","cols"].forEach(id=>$(id).addEventListener("input",render));
+render();
+</script>
+</body>
+</html>

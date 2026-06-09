@@ -1,0 +1,41 @@
+{
+  "name": "shotcraft",
+  "version": "0.1.0",
+  "description": "Turn real terminal output or a before/after into a beautiful, brand-matched PNG for your README — a themeable Carbon + before/after framer, rendered by your installed Chrome. Zero runtime dependencies.",
+  "keywords": [
+    "screenshot",
+    "terminal",
+    "carbon",
+    "readme",
+    "ansi",
+    "before-after",
+    "cli",
+    "png",
+    "portfolio",
+    "docs"
+  ],
+  "license": "MIT",
+  "author": "convenientlymike",
+  "type": "module",
+  "bin": {
+    "shotcraft": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node -e \"require('fs').chmodSync('dist/cli.js',0o755)\"",
+    "prepare": "npm run build",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --import tsx --test \"test/**/*.test.ts\"",
+    "dev": "tsx src/cli.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}
