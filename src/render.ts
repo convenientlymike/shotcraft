@@ -25,7 +25,7 @@ import {
   openSync,
   closeSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { tmpdir, platform } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
@@ -49,7 +49,10 @@ const LAUNCH_FLAGS = [
   "--headless=new",
   "--remote-debugging-port=0",
   "--disable-gpu",
-  "--no-sandbox",
+  // --no-sandbox is required on Linux CI (runs as root) but BREAKS macOS headless —
+  // a Mach-port rendezvous failure ("No rendezvous client, parent died?") kills the
+  // renderer. So add it on Linux only.
+  ...(platform() === "linux" ? ["--no-sandbox"] : []),
   "--disable-dev-shm-usage",
   "--no-first-run",
   "--no-default-browser-check",
