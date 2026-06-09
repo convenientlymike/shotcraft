@@ -45,7 +45,17 @@ jobs:
         with:
           chrome-version: stable
 
+      # On macOS the setup-chrome *chromium* build has a headless Mach-port IPC bug
+      # ("No rendezvous client"); the runner's preinstalled real Google Chrome works.
+      - name: Choose Chrome binary
+        shell: bash
+        run: |
+          GC="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+          if [ "$RUNNER_OS" = "macOS" ] && [ -x "$GC" ]; then
+            echo "SHOTCRAFT_CHROME=$GC" >> "$GITHUB_ENV"
+          else
+            echo "SHOTCRAFT_CHROME=${{ steps.chrome.outputs.chrome-path }}" >> "$GITHUB_ENV"
+          fi
+
       - name: Test
         run: pnpm test
-        env:
-          SHOTCRAFT_CHROME: ${{ steps.chrome.outputs.chrome-path }}
