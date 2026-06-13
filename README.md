@@ -9,6 +9,7 @@ output of your CLI — or a before/after — into a crisp, transparent, on-brand
 command, driving the Chrome you already have. **Zero runtime dependencies; never downloads a browser.**
 
 [![CI](https://github.com/convenientlymike/shotcraft/actions/workflows/ci.yml/badge.svg)](https://github.com/convenientlymike/shotcraft/actions/workflows/ci.yml)
+&nbsp;[![npm](https://img.shields.io/npm/v/shotcraft?logo=npm&color=CB3837&labelColor=09090F)](https://www.npmjs.com/package/shotcraft)
 &nbsp;![License](https://img.shields.io/badge/license-MIT-blue)
 &nbsp;![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)
 &nbsp;![Node](https://img.shields.io/badge/Node-%E2%89%A522-339933?logo=nodedotjs&logoColor=white)

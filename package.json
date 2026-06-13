@@ -16,6 +16,12 @@
   ],
   "license": "MIT",
   "author": "convenientlymike",
+  "homepage": "https://github.com/convenientlymike/shotcraft",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/convenientlymike/shotcraft.git"
+  },
+  "bugs": "https://github.com/convenientlymike/shotcraft/issues",
   "type": "module",
   "bin": {
     "shotcraft": "dist/cli.js"
